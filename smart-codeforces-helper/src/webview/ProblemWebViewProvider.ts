@@ -14,7 +14,6 @@ interface ProblemData {
     description: string;
     inputFormat: string;
     outputFormat: string;
-    constraints: string[];
     sampleTests: TestCase[];
     source: string;
     difficulty?: string;
@@ -133,7 +132,6 @@ export class ProblemWebviewProvider {
                 description: detailedData.description,
                 inputFormat: detailedData.inputFormat,
                 outputFormat: detailedData.outputFormat,
-                constraints: detailedData.constraints,
                 sampleTests: detailedData.sampleTests,
                 source: `Contest ${contestId}`,
                 difficulty: apiData.rating ? `*${apiData.rating}` : detailedData.difficulty
@@ -305,45 +303,91 @@ export class ProblemWebviewProvider {
                 // Extract sample tests
                 const sampleTests: TestCase[] = [];
 
-                // Multiple approaches to find samples
-                const inputSelectors = ['.input pre', '.sample-input pre', '.input', '.sample-input'];
-                const outputSelectors = ['.output pre', '.sample-output pre', '.output', '.sample-output'];
+                // Look for sample test containers
+                const sampleTestContainers = document.querySelectorAll('.sample-test');
 
-                for (const inputSel of inputSelectors) {
-                    const inputs = document.querySelectorAll(inputSel);
-                    if (inputs.length > 0) {
-                        for (const outputSel of outputSelectors) {
-                            const outputs = document.querySelectorAll(outputSel);
-                            if (outputs.length > 0) {
-                                for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
-                                    const input = inputs[i].textContent?.trim() || '';
-                                    const output = outputs[i].textContent?.trim() || '';
-                                    if (input && output && input.length < 200 && output.length < 200) {
-                                        sampleTests.push({ input, output });
-                                    }
+                for (let i = 0; i < sampleTestContainers.length; i++) {
+                    const container = sampleTestContainers[i];
+
+                    // Extract input - look for individual line divs first, then fallback to pre text
+                    const inputContainer = container.querySelector('.input pre');
+                    let input = '';
+
+                    if (inputContainer) {
+                        // Check if input uses individual line divs (newer Codeforces format)
+                        const inputLines = inputContainer.querySelectorAll('.test-example-line');
+                        if (inputLines.length > 0) {
+                            // Extract each line separately and join with newlines
+                            const lines: string[] = [];
+                            inputLines.forEach(line => {
+                                const lineText = line.textContent?.trim();
+                                if (lineText !== undefined && lineText !== '') {
+                                    lines.push(lineText);
                                 }
-                                if (sampleTests.length > 0) {
-                                    break;
-                                }
-                            }
+                            });
+                            input = lines.join('\n');
+                        } else {
+                            // Fallback to plain text extraction
+                            input = inputContainer.textContent?.trim() || '';
                         }
-                        if (sampleTests.length > 0) {
-                            break;
-                        }
+                    }
+
+                    // Extract output - usually plain text
+                    const outputContainer = container.querySelector('.output pre');
+                    const output = outputContainer ? (outputContainer.textContent?.trim() || '') : '';
+
+                    // Add test case if both input and output exist and are reasonable length
+                    if (input && output && input.length < 1000 && output.length < 1000) {
+                        sampleTests.push({ input, output });
                     }
                 }
 
-                // Extract constraints
-                const constraints: string[] = [];
-                const noteText = getTextBySelectors(['.note', '.notes', '[class*="constraint"]']);
-                if (noteText) {
-                    const patterns = [/\d+\s*[≤<=]\s*\w+\s*[≤<=]\s*\d+/g, /1\s*[≤<=]\s*\w+\s*[≤<=]\s*10\^?\d+/g];
-                    patterns.forEach(pattern => {
-                        const matches = noteText.match(pattern);
-                        if (matches) {
-                            constraints.push(...matches);
+                // Fallback: if no sample-test containers found, use the old method
+                if (sampleTests.length === 0) {
+                    const inputSelectors = ['.input pre', '.sample-input pre'];
+                    const outputSelectors = ['.output pre', '.sample-output pre'];
+
+                    for (const inputSel of inputSelectors) {
+                        const inputs = document.querySelectorAll(inputSel);
+                        if (inputs.length > 0) {
+                            for (const outputSel of outputSelectors) {
+                                const outputs = document.querySelectorAll(outputSel);
+                                if (outputs.length > 0) {
+                                    for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
+                                        const inputElement = inputs[i];
+                                        let input = '';
+
+                                        // Check for line divs in input
+                                        const inputLines = inputElement.querySelectorAll('.test-example-line');
+                                        if (inputLines.length > 0) {
+                                            const lines: string[] = [];
+                                            inputLines.forEach(line => {
+                                                const lineText = line.textContent?.trim();
+                                                if (lineText !== undefined && lineText !== '') {
+                                                    lines.push(lineText);
+                                                }
+                                            });
+                                            input = lines.join('\n');
+                                        } else {
+                                            input = inputElement.textContent?.trim() || '';
+                                        }
+
+                                        const output = outputs[i].textContent?.trim() || '';
+
+                                        if (input && output && input.length < 1000 && output.length < 1000) {
+                                            sampleTests.push({ input, output });
+                                        }
+                                    }
+                                    if (sampleTests.length > 0) {
+                                        break;
+                                    }
+                                }
+                            }
+                            if (sampleTests.length > 0) {
+                                break;
+                            }
                         }
-                    });
+                    }
                 }
 
                 return {
@@ -353,7 +397,6 @@ export class ProblemWebviewProvider {
                     description: description.trim() || 'Problem description',
                     inputFormat: inputFormat || 'See problem statement',
                     outputFormat: outputFormat || 'See problem statement',
-                    constraints,
                     sampleTests,
                     source: 'Codeforces',
                     difficulty: undefined
@@ -381,12 +424,6 @@ export class ProblemWebviewProvider {
             description: `One hot summer day Pete and his friend Billy decided to buy a watermelon. They chose the biggest and the most beautiful watermelon in the whole store. But to their surprise, the cashier told them that the price of the watermelon is <strong>w</strong> dollars, where <strong>w</strong> is even. Pete and Billy are only able to eat the watermelon if they can divide it into two parts such that each part weighs an even number of kilograms and each part weighs at least 2 kilograms.`,
             inputFormat: "The first line contains a single integer <strong>w</strong> (1 ≤ w ≤ 100) — the weight of the watermelon.",
             outputFormat: "Print <strong>YES</strong> if the watermelon can be divided according to the rules, and <strong>NO</strong> otherwise.",
-            constraints: [
-                "1 ≤ w ≤ 100",
-                "w is a positive integer",
-                "Each part must weigh at least 2 kg",
-                "Each part must have even weight"
-            ],
             sampleTests: [
                 {
                     input: "8",
@@ -513,30 +550,6 @@ export class ProblemWebviewProvider {
 
                 .section-content {
                     color: var(--text-primary);
-                }
-
-                .constraints-list {
-                    list-style: none;
-                    padding: 0;
-                }
-
-                .constraints-list li {
-                    padding: 8px 0;
-                    border-bottom: 1px solid var(--border);
-                    position: relative;
-                    padding-left: 20px;
-                }
-
-                .constraints-list li:before {
-                    content: "▸";
-                    color: var(--accent-blue);
-                    font-weight: bold;
-                    position: absolute;
-                    left: 0;
-                }
-
-                .constraints-list li:last-child {
-                    border-bottom: none;
                 }
 
                 .test-cases {
@@ -793,16 +806,6 @@ export class ProblemWebviewProvider {
                     <div class="section-content">
                         ${this.processMathExpressions(problem.outputFormat)}
                     </div>
-                </section>
-
-                <section class="section">
-                    <h2 class="section-title">
-                        <span class="icon">⚖️</span>
-                        Constraints
-                    </h2>
-                    <ul class="constraints-list">
-                        ${problem.constraints.map(constraint => `<li>${constraint}</li>`).join('')}
-                    </ul>
                 </section>
 
                 <section class="section">
