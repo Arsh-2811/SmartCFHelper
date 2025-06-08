@@ -1,41 +1,21 @@
 import * as vscode from 'vscode';
-import * as puppeteer from 'puppeteer';
 
 import * as fs from 'fs';
 import * as path from 'path';
 
-interface TestCase {
-    input: string;
-    output: string;
-    explanation?: string;
-}
-
-interface ProblemData {
-    title: string;
-    timeLimit: string;
-    memoryLimit: string;
-    description: string;
-    inputFormat: string;
-    outputFormat: string;
-    sampleTests: TestCase[];
-    source: string;
-    difficulty?: string;
-}
-
-interface CodeforcesApiProblem {
-    contestId: number;
-    index: string;
-    name: string;
-    type: string;
-    rating?: number;
-    tags: string[];
-}
+import { ProblemData } from './Interfaces';
+import { TestCaseHandler } from './TestCaseHandler';
+import { ProblemScraper } from './ProblemScraper';
+import { TemplateGenerator } from './TemplateGenerator';
 
 export class ProblemWebviewProvider {
     private static readonly viewType = 'problemViewer';
     private panel: vscode.WebviewPanel | undefined;
-    private browser?: puppeteer.Browser;
     private currentProblemData: ProblemData | undefined;
+
+    testCaseHandler = new TestCaseHandler();
+    problemScraper = new ProblemScraper();
+    templateGenerator = new TemplateGenerator();
 
     constructor(private readonly extensionUri: vscode.Uri) { }
 
@@ -54,56 +34,48 @@ export class ProblemWebviewProvider {
                 }
             );
 
-            // Handle panel disposal
             this.panel.onDidDispose(() => {
                 this.panel = undefined;
             }, null);
 
-            // Handle messages from webview
             this.panel.webview.onDidReceiveMessage(
                 message => {
                     switch (message.command) {
                         case 'runTests':
-                            this.handleRunTests();
+                            this.testCaseHandler.handleRunTests();
                             break;
                         case 'generateScript':
                             this.handleGenerateScript();
                             break;
                         case 'copyTestCase':
-                            this.handleCopyTestCase(message.testCase);
+                            this.testCaseHandler.handleCopyTestCase(message.testCase);
                             break;
                     }
                 }
             );
         }
 
-        // Get dummy problem data (replace this with actual scraping later)
-        // const problemData = this.getDummyProblemData(problemUrl);
         let problemData: ProblemData;
         if (problemUrl) {
-            problemData = await this.extractProblemData(problemUrl);
+            problemData = await this.problemScraper.extractProblemData(problemUrl);
         } else {
-            problemData = this.getDummyProblemData();
+            problemData = this.problemScraper.getDummyProblemData();
         }
 
         this.currentProblemData = problemData;
-        // Set webview content
         this.panel.webview.html = this.getWebviewContent(problemData);
     }
 
     private async createAndOpenFile(fileName: string, content: string, language: string = 'cpp'): Promise<void> {
         try {
-            // Get the current workspace folder
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (!workspaceFolder) {
                 vscode.window.showErrorMessage('No workspace folder is open. Please open a folder first.');
                 return;
             }
 
-            // Create the file path
             const filePath = path.join(workspaceFolder.uri.fsPath, fileName);
 
-            // Check if file already exists
             if (fs.existsSync(filePath)) {
                 const overwrite = await vscode.window.showWarningMessage(
                     `File "${fileName}" already exists. Do you want to overwrite it?`,
@@ -114,17 +86,14 @@ export class ProblemWebviewProvider {
                 }
             }
 
-            // Write the file
             fs.writeFileSync(filePath, content, 'utf-8');
 
-            // Open the file in VS Code in the first column (opposite to the webview)
             const document = await vscode.workspace.openTextDocument(filePath);
             await vscode.window.showTextDocument(document, {
-                viewColumn: vscode.ViewColumn.One, // Open in the first column
-                preview: false // Don't open in preview mode
+                viewColumn: vscode.ViewColumn.One,
+                preview: false
             });
 
-            // Ensure the webview is visible in the second column
             if (this.panel) {
                 this.panel.reveal(vscode.ViewColumn.Beside, false);
             }
@@ -135,113 +104,12 @@ export class ProblemWebviewProvider {
         }
     }
 
-    private generateCppTemplate(problemTitle: string, sampleTests: TestCase[]): string {
-        const sanitizedTitle = problemTitle.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-
-        return `#include <iostream>
-using namespace std;
-
-// Problem: ${problemTitle}
-// Generated by Problem Viewer Extension
-
-int main() {
-    ios_base::sync_with_stdio(false);
-    cin.tie(NULL);
-    
-    // Your solution here
-    
-    return 0;
-}
-
-/*
-Sample Test Cases:
-${sampleTests.map((test, index) => `
-Test ${index + 1}:
-Input:
-${test.input}
-
-Expected Output:
-${test.output}
-${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
-`).join('\n')}
-*/`;
-    }
-
-    private generateJavaTemplate(problemTitle: string, sampleTests: TestCase[]): string {
-        const className = problemTitle
-            .replace(/[^a-zA-Z0-9\s]/g, '')
-            .replace(/\s+/g, '_')
-            .toLowerCase()
-            .split('_')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join('');
-
-        return `import java.util.*;
-import java.io.*;
-
-// Problem: ${problemTitle}
-// Generated by Problem Viewer Extension
-
-public class ${className} {
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        
-        // Your solution here
-        
-        sc.close();
-    }
-}
-
-/*
-Sample Test Cases:
-${sampleTests.map((test, index) => `
-Test ${index + 1}:
-Input:
-${test.input}
-
-Expected Output:
-${test.output}
-${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
-`).join('\n')}
-*/`;
-    }
-
-    private generatePythonTemplate(problemTitle: string, sampleTests: TestCase[]): string {
-        return `#!/usr/bin/env python3
-# Problem: ${problemTitle}
-# Generated by Problem Viewer Extension
-
-def solve():
-    # Your solution here
-    pass
-
-if __name__ == "__main__":
-    solve()
-
-"""
-Sample Test Cases:
-${sampleTests.map((test, index) => `
-Test ${index + 1}:
-Input:
-${test.input}
-
-Expected Output:
-${test.output}
-${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
-`).join('\n')}
-"""`;
-    }
-
     private processMathExpressions(text: string): string {
-        // Replace $$$ delimited math expressions with proper LaTeX formatting
-        // Handle block math (standalone expressions)
         text = text.replace(/\$\$\$([^$]+)\$\$\$/g, (match, mathContent) => {
-            // Clean up the math content
             const cleanMath = mathContent.trim();
             return `<span class="math-inline">\\(${cleanMath}\\)</span>`;
         });
 
-        // Handle inline math expressions that might be shorter
         text = text.replace(/\$([^$\n]+)\$/g, (match, mathContent) => {
             const cleanMath = mathContent.trim();
             return `<span class="math-inline">\\(${cleanMath}\\)</span>`;
@@ -250,345 +118,6 @@ ${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
         return text;
     }
 
-
-    private async extractProblemData(url: string): Promise<ProblemData> {
-        // Extract contest ID and problem index from URL
-        const urlMatch = url.match(/\/problemset\/problem\/(\d+)\/([A-Z]\d?)/i) ||
-            url.match(/\/contest\/(\d+)\/problem\/([A-Z]\d?)/i);
-
-        if (!urlMatch) {
-            throw new Error('Invalid Codeforces problem URL format');
-        }
-
-        const contestId = parseInt(urlMatch[1]);
-        const problemIndex = urlMatch[2].toUpperCase();
-
-        try {
-            // Try to get basic problem info from Codeforces API first
-            const apiData = await this.fetchFromCodeforcesAPI(contestId, problemIndex);
-
-            // Then scrape the detailed content with optimized Puppeteer
-            const detailedData = await this.scrapeWithOptimizedPuppeteer(url);
-
-            // Combine API data with scraped data
-            return {
-                title: apiData.name || detailedData.title,
-                timeLimit: detailedData.timeLimit,
-                memoryLimit: detailedData.memoryLimit,
-                description: detailedData.description,
-                inputFormat: detailedData.inputFormat,
-                outputFormat: detailedData.outputFormat,
-                sampleTests: detailedData.sampleTests,
-                source: `Contest ${contestId}`,
-                difficulty: apiData.rating ? `*${apiData.rating}` : detailedData.difficulty
-            };
-        } catch (apiError) {
-            console.warn('API fetch failed, using scraping only:', apiError);
-            return await this.scrapeWithOptimizedPuppeteer(url);
-        }
-    }
-
-    private async fetchFromCodeforcesAPI(contestId: number, problemIndex: string): Promise<CodeforcesApiProblem> {
-        const apiUrl = `https://codeforces.com/api/problemset.problems`;
-
-        try {
-            const response = await fetch(apiUrl);
-            const data = await response.json();
-
-            if (data.status !== 'OK') {
-                throw new Error(`API Error: ${data.comment}`);
-            }
-
-            const problem = data.result.problems.find((p: CodeforcesApiProblem) =>
-                p.contestId === contestId && p.index === problemIndex
-            );
-
-            if (!problem) {
-                throw new Error(`Problem ${contestId}/${problemIndex} not found in API`);
-            }
-
-            return problem;
-        } catch (error) {
-            throw new Error(`Failed to fetch from Codeforces API: ${error}`);
-        }
-    }
-
-    private async scrapeWithOptimizedPuppeteer(url: string): Promise<ProblemData> {
-        const browser = await puppeteer.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-web-security',
-                '--disable-features=VizDisplayCompositor',
-                '--disable-extensions',
-                '--disable-plugins',
-                '--disable-images'
-            ]
-        });
-
-        try {
-            const page = await browser.newPage();
-
-            // Optimize page loading - block unnecessary resources
-            await page.setRequestInterception(true);
-            page.on('request', (req) => {
-                const resourceType = req.resourceType();
-                if (resourceType === 'image' || resourceType === 'font' ||
-                    resourceType === 'media' || resourceType === 'websocket') {
-                    req.abort();
-                } else {
-                    req.continue();
-                }
-            });
-
-            // Set minimal viewport for faster rendering
-            await page.setViewport({ width: 800, height: 600 });
-
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-            console.log('Loading problem page...');
-            await page.goto(url, {
-                waitUntil: 'domcontentloaded',
-                timeout: 20000
-            });
-
-            // Wait for content with multiple strategies
-            try {
-                await page.waitForFunction(() => {
-                    return document.querySelector('.problem-statement') !== null ||
-                        document.querySelector('.problemindexholder') !== null ||
-                        document.body.innerText.includes('Input') ||
-                        document.body.innerText.includes('Output');
-                }, { timeout: 10000 });
-            } catch (e) {
-                console.log('Waiting longer for content...');
-                // await page.waitForTimeout(3000);
-            }
-
-            console.log('Extracting problem data...');
-            const problemData = await page.evaluate(() => {
-                const cleanText = (text: string): string => {
-                    return text.replace(/\s+/g, ' ').replace(/\n+/g, ' ').trim();
-                };
-
-                const getTextBySelectors = (selectors: string[]): string => {
-                    for (const selector of selectors) {
-                        const element = document.querySelector(selector);
-                        if (element && element.textContent && element.textContent.trim()) {
-                            return cleanText(element.textContent);
-                        }
-                    }
-                    return '';
-                };
-
-                // Extract title
-                const title = getTextBySelectors([
-                    '.problem-statement .title',
-                    '.problemindexholder .title',
-                    '.header .title',
-                    'h1', 'h2'
-                ]).replace(/^[A-Z]\d*\.\s*/, '');
-
-                // Extract limits
-                const timeLimit = getTextBySelectors(['.time-limit', '[class*="time-limit"]'])
-                    .replace(/time limit per test/i, '').replace(/time limit/i, '').trim();
-
-                const memoryLimit = getTextBySelectors(['.memory-limit', '[class*="memory-limit"]'])
-                    .replace(/memory limit per test/i, '').replace(/memory limit/i, '').trim();
-
-                // Extract description - look for main content
-                let description = '';
-                const descriptionSelectors = [
-                    '.problem-statement > div:not(.input-specification):not(.output-specification):not(.sample-tests):not(.note)',
-                    '.problem-statement p',
-                    '.problemindexholder > div'
-                ];
-
-                for (const selector of descriptionSelectors) {
-                    const elements = document.querySelectorAll(selector);
-                    for (let i = 0; i < elements.length; i++) {
-                        const element = elements[i];
-                        if (element && element.innerHTML &&
-                            !element.classList.contains('section-title') &&
-                            !element.querySelector('.time-limit') &&
-                            !element.querySelector('.memory-limit') &&
-                            element.textContent && element.textContent.trim().length > 20) {
-                            // Get innerHTML instead of textContent to preserve math formatting
-                            description += element.innerHTML + ' ';
-                            if (description.length > 1000) {
-                                break;
-                            }
-                        }
-                    }
-                    if (description.trim()) {
-                        break;
-                    }
-                }
-
-                // Also update input and output format extraction:
-                const inputFormat = (() => {
-                    const inputElement = document.querySelector('.input-specification') ||
-                        document.querySelector('[class*="input-spec"]');
-                    if (inputElement) {
-                        return inputElement.innerHTML.replace(/<div[^>]*class="section-title"[^>]*>.*?<\/div>/gi, '').trim();
-                    }
-                    return 'See problem statement';
-                })();
-
-                const outputFormat = (() => {
-                    const outputElement = document.querySelector('.output-specification') ||
-                        document.querySelector('[class*="output-spec"]');
-                    if (outputElement) {
-                        return outputElement.innerHTML.replace(/<div[^>]*class="section-title"[^>]*>.*?<\/div>/gi, '').trim();
-                    }
-                    return 'See problem statement';
-                })();
-
-                // Extract sample tests
-                const sampleTests: TestCase[] = [];
-
-                // Look for sample test containers
-                const sampleTestContainers = document.querySelectorAll('.sample-test');
-
-                for (let i = 0; i < sampleTestContainers.length; i++) {
-                    const container = sampleTestContainers[i];
-
-                    // Extract input - look for individual line divs first, then fallback to pre text
-                    const inputContainer = container.querySelector('.input pre');
-                    let input = '';
-
-                    if (inputContainer) {
-                        // Check if input uses individual line divs (newer Codeforces format)
-                        const inputLines = inputContainer.querySelectorAll('.test-example-line');
-                        if (inputLines.length > 0) {
-                            // Extract each line separately and join with newlines
-                            const lines: string[] = [];
-                            inputLines.forEach(line => {
-                                const lineText = line.textContent?.trim();
-                                if (lineText !== undefined && lineText !== '') {
-                                    lines.push(lineText);
-                                }
-                            });
-                            input = lines.join('\n');
-                        } else {
-                            // Fallback to plain text extraction
-                            input = inputContainer.textContent?.trim() || '';
-                        }
-                    }
-
-                    // Extract output - usually plain text
-                    const outputContainer = container.querySelector('.output pre');
-                    const output = outputContainer ? (outputContainer.textContent?.trim() || '') : '';
-
-                    // Add test case if both input and output exist and are reasonable length
-                    if (input && output && input.length < 1000 && output.length < 1000) {
-                        sampleTests.push({ input, output });
-                    }
-                }
-
-                // Fallback: if no sample-test containers found, use the old method
-                if (sampleTests.length === 0) {
-                    const inputSelectors = ['.input pre', '.sample-input pre'];
-                    const outputSelectors = ['.output pre', '.sample-output pre'];
-
-                    for (const inputSel of inputSelectors) {
-                        const inputs = document.querySelectorAll(inputSel);
-                        if (inputs.length > 0) {
-                            for (const outputSel of outputSelectors) {
-                                const outputs = document.querySelectorAll(outputSel);
-                                if (outputs.length > 0) {
-                                    for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
-                                        const inputElement = inputs[i];
-                                        let input = '';
-
-                                        // Check for line divs in input
-                                        const inputLines = inputElement.querySelectorAll('.test-example-line');
-                                        if (inputLines.length > 0) {
-                                            const lines: string[] = [];
-                                            inputLines.forEach(line => {
-                                                const lineText = line.textContent?.trim();
-                                                if (lineText !== undefined && lineText !== '') {
-                                                    lines.push(lineText);
-                                                }
-                                            });
-                                            input = lines.join('\n');
-                                        } else {
-                                            input = inputElement.textContent?.trim() || '';
-                                        }
-
-                                        const output = outputs[i].textContent?.trim() || '';
-
-                                        if (input && output && input.length < 1000 && output.length < 1000) {
-                                            sampleTests.push({ input, output });
-                                        }
-                                    }
-                                    if (sampleTests.length > 0) {
-                                        break;
-                                    }
-                                }
-                            }
-                            if (sampleTests.length > 0) {
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                return {
-                    title: title || 'Problem Title',
-                    timeLimit: timeLimit || '1 second',
-                    memoryLimit: memoryLimit || '256 megabytes',
-                    description: description.trim() || 'Problem description',
-                    inputFormat: inputFormat || 'See problem statement',
-                    outputFormat: outputFormat || 'See problem statement',
-                    sampleTests,
-                    source: 'Codeforces',
-                    difficulty: undefined
-                };
-            });
-
-            console.log('Problem data extracted successfully');
-            return problemData;
-
-        } catch (error) {
-            console.error('Error during scraping:', error);
-            throw new Error(`Failed to scrape problem data: ${error}`);
-        } finally {
-            await browser.close();
-        }
-    }
-
-    private getDummyProblemData(url?: string): ProblemData {
-        return {
-            title: "A. Watermelon",
-            timeLimit: "1 second",
-            memoryLimit: "64 megabytes",
-            source: "Codeforces Round #4 (Div. 2)",
-            difficulty: "800",
-            description: `One hot summer day Pete and his friend Billy decided to buy a watermelon. They chose the biggest and the most beautiful watermelon in the whole store. But to their surprise, the cashier told them that the price of the watermelon is <strong>w</strong> dollars, where <strong>w</strong> is even. Pete and Billy are only able to eat the watermelon if they can divide it into two parts such that each part weighs an even number of kilograms and each part weighs at least 2 kilograms.`,
-            inputFormat: "The first line contains a single integer <strong>w</strong> (1 ≤ w ≤ 100) — the weight of the watermelon.",
-            outputFormat: "Print <strong>YES</strong> if the watermelon can be divided according to the rules, and <strong>NO</strong> otherwise.",
-            sampleTests: [
-                {
-                    input: "8",
-                    output: "YES",
-                    explanation: "We can divide 8 into 4 + 4, both are even and ≥ 2"
-                },
-                {
-                    input: "6",
-                    output: "YES",
-                    explanation: "We can divide 6 into 2 + 4, both are even and ≥ 2"
-                },
-                {
-                    input: "2",
-                    output: "NO",
-                    explanation: "We cannot divide 2 into two parts where each is ≥ 2"
-                }
-            ]
-        };
-    }
 
     private getWebviewContent(problem: ProblemData): string {
         return `
@@ -1039,23 +568,15 @@ ${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
         </html>`;
     }
 
-    private async handleRunTests() {
-        vscode.window.showInformationMessage('🔄 Running tests against your solution...');
-        // TODO: Implement actual test running logic
-        setTimeout(() => {
-            vscode.window.showInformationMessage('✅ All tests passed! Your solution is correct.');
-        }, 2000);
-    }
+    
 
     private async handleGenerateScript() {
         try {
-            // Get the current problem data (you'll need to store this when loading the problem)
             if (!this.currentProblemData) {
                 vscode.window.showErrorMessage('No problem data available. Please load a problem first.');
                 return;
             }
 
-            // Ask user for language preference
             const language = await vscode.window.showQuickPick(
                 ['C++', 'Python', 'Java'],
                 { placeHolder: 'Select programming language' }
@@ -1065,7 +586,6 @@ ${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
                 return;
             }
 
-            // Generate filename
             const sanitizedTitle = this.currentProblemData.title
                 .replace(/[^a-zA-Z0-9\s]/g, '')
                 .replace(/\s+/g, '_')
@@ -1078,17 +598,17 @@ ${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
             switch (language) {
                 case 'C++':
                     fileName = `${sanitizedTitle}.cpp`;
-                    content = this.generateCppTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
+                    content = this.templateGenerator.generateCppTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
                     vscodeLanguage = 'cpp';
                     break;
                 case 'Python':
                     fileName = `${sanitizedTitle}.py`;
-                    content = this.generatePythonTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
+                    content = this.templateGenerator.generatePythonTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
                     vscodeLanguage = 'python';
                     break;
                 case 'Java':
                     fileName = `${sanitizedTitle.charAt(0).toUpperCase() + sanitizedTitle.slice(1)}.java`;
-                    content = this.generateJavaTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
+                    content = this.templateGenerator.generateJavaTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
                     vscodeLanguage = 'java';
                     break;
                 default:
@@ -1099,10 +619,5 @@ ${test.explanation ? `\nExplanation: ${test.explanation}` : ''}
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to generate script: ${error}`);
         }
-    }
-
-    private async handleCopyTestCase(testCase: TestCase) {
-        await vscode.env.clipboard.writeText(`Input:\n${testCase.input}\n\nOutput:\n${testCase.output}`);
-        vscode.window.showInformationMessage('📋 Test case copied to clipboard!');
     }
 }
