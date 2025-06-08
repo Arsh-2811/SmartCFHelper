@@ -1,6 +1,34 @@
+import * as vscode from 'vscode';
+import { MistralTemplateGenerator } from "../autoCodeGenerator/MistralTemplateGenerator";
 import { TestCase } from "./Interfaces";
 
+
 export class TemplateGenerator {
+    public mistralGenerator: MistralTemplateGenerator;
+
+    constructor() {
+        const apiKey = this.getMistralApiKey();
+        this.mistralGenerator = new MistralTemplateGenerator(apiKey);
+    }
+
+    private getMistralApiKey(): string {
+        // First try to get from VS Code settings
+        const config = vscode.workspace.getConfiguration('your-extension-name');
+        const apiKeyFromSettings = config.get<string>('mistralApiKey');
+
+        if (apiKeyFromSettings) {
+            return apiKeyFromSettings;
+        }
+
+        // Fallback to environment variable
+        const apiKeyFromEnv = process.env.MISTRAL_API_KEY;
+        if (apiKeyFromEnv) {
+            return apiKeyFromEnv;
+        }
+
+        throw new Error('Mistral API key not found. Please set it in VS Code settings or MISTRAL_API_KEY environment variable.');
+    }
+
     public generateCppTemplate(problemTitle: string, sampleTests: TestCase[]): string {
         const sanitizedTitle = problemTitle.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 

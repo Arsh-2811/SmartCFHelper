@@ -1,4 +1,5 @@
 import * as puppeteer from 'puppeteer';
+
 import { ProblemData, CodeforcesApiProblem, TestCase } from "./Interfaces";
 
 export class ProblemScraper {

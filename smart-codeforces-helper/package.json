@@ -40,6 +40,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@types/dotenv": "^6.1.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/vscode": "^1.100.0",
@@ -51,6 +52,8 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@mistralai/mistralai": "^1.7.1",
+    "dotenv": "^16.5.0",
     "puppeteer": "^24.10.0"
   }
 }

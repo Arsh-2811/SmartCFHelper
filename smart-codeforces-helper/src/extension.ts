@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
 import { ProblemWebviewProvider } from './webview/ProblemWebViewProvider';
 
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+dotenv.config({path: path.join(__dirname, '..', '.env')});
+
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Congratulations, your extension "smart-codeforces-helper" is now active!');
 

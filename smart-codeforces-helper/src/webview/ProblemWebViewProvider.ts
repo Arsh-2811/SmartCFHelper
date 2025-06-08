@@ -568,55 +568,58 @@ export class ProblemWebviewProvider {
         </html>`;
     }
 
-    
-
     private async handleGenerateScript() {
         try {
             if (!this.currentProblemData) {
                 vscode.window.showErrorMessage('No problem data available. Please load a problem first.');
                 return;
             }
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Generating C++ Template",
+                cancellable: true
+            }, async (progress, token) => {
+                progress.report({increment: 0, message: "Preparing Generation..."});
 
-            // const language = await vscode.window.showQuickPick(
-            //     ['C++', 'Python', 'Java'],
-            //     { placeHolder: 'Select programming language' }
-            // );
-            const language = 'C++';
+                const language = 'C++';
 
-            if (!language) {
-                return;
-            }
-
-            const sanitizedTitle = this.currentProblemData.title
-                .replace(/[^a-zA-Z0-9\s]/g, '')
-                .replace(/\s+/g, '_')
-                .toLowerCase();
-
-            let fileName: string;
-            let content: string;
-            let vscodeLanguage: string;
-
-            switch (language) {
-                case 'C++':
-                    fileName = `${sanitizedTitle}.cpp`;
-                    content = this.templateGenerator.generateCppTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
-                    vscodeLanguage = 'cpp';
-                    break;
-                // case 'Python':
-                //     fileName = `${sanitizedTitle}.py`;
-                //     content = this.templateGenerator.generatePythonTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
-                //     vscodeLanguage = 'python';
-                //     break;
-                // case 'Java':
-                //     fileName = `${sanitizedTitle.charAt(0).toUpperCase() + sanitizedTitle.slice(1)}.java`;
-                //     content = this.templateGenerator.generateJavaTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
-                //     vscodeLanguage = 'java';
-                //     break;
-                default:
+                if (!this.currentProblemData) {
+                    vscode.window.showErrorMessage('No problem data available. Please load a problem first.');
                     return;
-            }
+                }
 
-            await this.createAndOpenFile(fileName, content, vscodeLanguage);
+                const sanitizedTitle = this.currentProblemData.title
+                    .replace(/[^a-zA-Z0-9\s]/g, '')
+                    .replace(/\s+/g, '_')
+                    .toLowerCase();
+                
+                    if(token.isCancellationRequested){
+                        throw new Error('Cancelled by user');
+                    }
+
+                    progress.report({increment: 20, message: "Calling Mistral AI..."});
+
+                    let fileName: string;
+                    let content: string;
+                    let vscodeLanguage: string;
+
+                    switch (language) {
+                        case 'C++':
+                            fileName = `${sanitizedTitle}.cpp`;
+                            progress.report({increment: 30, message: "AI is analyzing problem..."});
+                            content = await this.templateGenerator.mistralGenerator.generateCppTemplateWithLLM(this.currentProblemData);
+                            vscodeLanguage = 'cpp';
+                            break;
+                        default:
+                            return;
+                    }
+
+                    progress.report({increment: 90, message: "Creating file..."});
+
+                    await this.createAndOpenFile(fileName, content, vscodeLanguage);
+
+                    progress.report({increment: 100, message: "Temple Generated!"});
+                });
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to generate script: ${error}`);
         }
