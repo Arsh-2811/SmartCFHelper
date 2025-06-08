@@ -42,7 +42,7 @@ export class ProblemWebviewProvider {
                 message => {
                     switch (message.command) {
                         case 'runTests':
-                            this.testCaseHandler.handleRunTests();
+                            this.testCaseHandler.handleRunTests(this.currentProblemData);
                             break;
                         case 'generateScript':
                             this.handleGenerateScript();
@@ -577,10 +577,11 @@ export class ProblemWebviewProvider {
                 return;
             }
 
-            const language = await vscode.window.showQuickPick(
-                ['C++', 'Python', 'Java'],
-                { placeHolder: 'Select programming language' }
-            );
+            // const language = await vscode.window.showQuickPick(
+            //     ['C++', 'Python', 'Java'],
+            //     { placeHolder: 'Select programming language' }
+            // );
+            const language = 'C++';
 
             if (!language) {
                 return;
@@ -601,16 +602,16 @@ export class ProblemWebviewProvider {
                     content = this.templateGenerator.generateCppTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
                     vscodeLanguage = 'cpp';
                     break;
-                case 'Python':
-                    fileName = `${sanitizedTitle}.py`;
-                    content = this.templateGenerator.generatePythonTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
-                    vscodeLanguage = 'python';
-                    break;
-                case 'Java':
-                    fileName = `${sanitizedTitle.charAt(0).toUpperCase() + sanitizedTitle.slice(1)}.java`;
-                    content = this.templateGenerator.generateJavaTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
-                    vscodeLanguage = 'java';
-                    break;
+                // case 'Python':
+                //     fileName = `${sanitizedTitle}.py`;
+                //     content = this.templateGenerator.generatePythonTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
+                //     vscodeLanguage = 'python';
+                //     break;
+                // case 'Java':
+                //     fileName = `${sanitizedTitle.charAt(0).toUpperCase() + sanitizedTitle.slice(1)}.java`;
+                //     content = this.templateGenerator.generateJavaTemplate(this.currentProblemData.title, this.currentProblemData.sampleTests);
+                //     vscodeLanguage = 'java';
+                //     break;
                 default:
                     return;
             }

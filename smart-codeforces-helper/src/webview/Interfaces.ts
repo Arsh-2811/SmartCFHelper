@@ -24,3 +24,13 @@ export interface CodeforcesApiProblem {
     rating?: number;
     tags: string[];
 }
+
+export interface TestResult {
+    testNumber: number;
+    passed: boolean;
+    input: string;
+    expectedOutput: string;
+    actualOutput: string;
+    error: string | null;
+    executionTime: number;
+}
