@@ -87,6 +87,25 @@ export class ProblemWebviewProvider {
         this.panel.webview.html = this.getWebviewContent(problemData);
     }
 
+    private processMathExpressions(text: string): string {
+        // Replace $$$ delimited math expressions with proper LaTeX formatting
+        // Handle block math (standalone expressions)
+        text = text.replace(/\$\$\$([^$]+)\$\$\$/g, (match, mathContent) => {
+            // Clean up the math content
+            const cleanMath = mathContent.trim();
+            return `<span class="math-inline">\\(${cleanMath}\\)</span>`;
+        });
+
+        // Handle inline math expressions that might be shorter
+        text = text.replace(/\$([^$\n]+)\$/g, (match, mathContent) => {
+            const cleanMath = mathContent.trim();
+            return `<span class="math-inline">\\(${cleanMath}\\)</span>`;
+        });
+
+        return text;
+    }
+
+
     private async extractProblemData(url: string): Promise<ProblemData> {
         // Extract contest ID and problem index from URL
         const urlMatch = url.match(/\/problemset\/problem\/(\d+)\/([A-Z]\d?)/i) ||
@@ -247,13 +266,14 @@ export class ProblemWebviewProvider {
                     const elements = document.querySelectorAll(selector);
                     for (let i = 0; i < elements.length; i++) {
                         const element = elements[i];
-                        if (element && element.textContent &&
+                        if (element && element.innerHTML &&
                             !element.classList.contains('section-title') &&
                             !element.querySelector('.time-limit') &&
                             !element.querySelector('.memory-limit') &&
-                            element.textContent.trim().length > 20) {
-                            description += cleanText(element.textContent) + ' ';
-                            if (description.length > 200) {
+                            element.textContent && element.textContent.trim().length > 20) {
+                            // Get innerHTML instead of textContent to preserve math formatting
+                            description += element.innerHTML + ' ';
+                            if (description.length > 1000) {
                                 break;
                             }
                         }
@@ -263,18 +283,24 @@ export class ProblemWebviewProvider {
                     }
                 }
 
-                // Extract input/output specifications
-                const inputFormat = getTextBySelectors([
-                    '.input-specification',
-                    '.input-specification p',
-                    '[class*="input-spec"]'
-                ]).replace(/input/i, '').trim();
+                // Also update input and output format extraction:
+                const inputFormat = (() => {
+                    const inputElement = document.querySelector('.input-specification') ||
+                        document.querySelector('[class*="input-spec"]');
+                    if (inputElement) {
+                        return inputElement.innerHTML.replace(/<div[^>]*class="section-title"[^>]*>.*?<\/div>/gi, '').trim();
+                    }
+                    return 'See problem statement';
+                })();
 
-                const outputFormat = getTextBySelectors([
-                    '.output-specification',
-                    '.output-specification p',
-                    '[class*="output-spec"]'
-                ]).replace(/output/i, '').trim();
+                const outputFormat = (() => {
+                    const outputElement = document.querySelector('.output-specification') ||
+                        document.querySelector('[class*="output-spec"]');
+                    if (outputElement) {
+                        return outputElement.innerHTML.replace(/<div[^>]*class="section-title"[^>]*>.*?<\/div>/gi, '').trim();
+                    }
+                    return 'See problem statement';
+                })();
 
                 // Extract sample tests
                 const sampleTests: TestCase[] = [];
@@ -672,7 +698,51 @@ export class ProblemWebviewProvider {
                         transform: translateY(0);
                     }
                 }
+
+                .math-inline {
+                    display: inline-block;
+                    margin: 0 2px;
+                }
+
+                .math-display {
+                    display: block;
+                    text-align: center;
+                    margin: 10px 0;
+                }
+
+                .section-content {
+                    color: var(--text-primary);
+                    line-height: 1.8;
+                }
+
+                .section-content p {
+                    margin-bottom: 12px;
+                }
+
+                .section-content ul, .section-content ol {
+                    margin: 10px 0;
+                    padding-left: 20px;
+                }
+
+                .section-content li {
+                    margin-bottom: 6px;
+                }
             </style>
+
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: {
+                        inlineMath: [['\\(', '\\)']],
+                        displayMath: [['\\[', '\\]']],
+                        processEscapes: true,
+                        processEnvironments: true
+                    },
+                    options: {
+                        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+                    }
+                };
+            </script>
         </head>
         <body>
             <div class="container">
@@ -701,7 +771,7 @@ export class ProblemWebviewProvider {
                         Problem Statement
                     </h2>
                     <div class="section-content">
-                        ${problem.description}
+                        ${this.processMathExpressions(problem.description)}
                     </div>
                 </section>
 
@@ -711,7 +781,7 @@ export class ProblemWebviewProvider {
                         Input Format
                     </h2>
                     <div class="section-content">
-                        ${problem.inputFormat}
+                        ${this.processMathExpressions(problem.inputFormat)}
                     </div>
                 </section>
 
@@ -721,7 +791,7 @@ export class ProblemWebviewProvider {
                         Output Format
                     </h2>
                     <div class="section-content">
-                        ${problem.outputFormat}
+                        ${this.processMathExpressions(problem.outputFormat)}
                     </div>
                 </section>
 
@@ -807,6 +877,14 @@ export class ProblemWebviewProvider {
                         });
                     });
                 });
+
+                if (window.MathJax) {
+                    MathJax.typesetPromise().then(() => {
+                        console.log('MathJax rendering completed');
+                    }).catch((err) => {
+                        console.error('MathJax rendering failed:', err);
+                    });
+                }
             </script>
         </body>
         </html>`;
